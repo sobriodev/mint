@@ -1,0 +1,13 @@
+[package]
+name = "mint"
+version = "0.1.0"
+edition = "2021"
+description = "Rust application to learn English words"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/sobriodev/mint"
+readme = "../README.md"
+keywords = ["learning"]
+categories = ["web-programming::http-server"]
+
+[dependencies]
+db = { path = "../db" }
