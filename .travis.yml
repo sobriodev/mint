@@ -5,5 +5,5 @@ rust:
 before_script:
   - rustup component add clippy
 script:
-  - clippy -- -D clippy::all -D clippy::pedantic -D clippy::nursery -D clippy::cargo -A clippy::multiple-crate-versions -A clippy::missing-const-for-fn
+  - cargo clippy -- -D clippy::all -D clippy::pedantic -D clippy::nursery -D clippy::cargo -A clippy::multiple-crate-versions -A clippy::missing-const-for-fn
   - cargo test
