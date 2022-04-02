@@ -7,6 +7,8 @@ use std::fmt::{Debug, Display, Formatter};
 pub enum CustomKind {
     /// Invalid argument
     InvalidArgument,
+    /// Database IO layer error
+    DbIo,
 }
 
 /// Library error structure.

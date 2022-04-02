@@ -1,9 +1,30 @@
 language: rust
+dist: bionic
+addons:
+  apt:
+    packages:
+      - libssl-dev
+cache: cargo
 rust:
   - stable
   - beta
-before_script:
-  - rustup component add clippy
+  - nightly
+matrix:
+      allow_failures:
+        - rust: nightly
+before_script: |
+  rustup component add clippy
+  if [[ "$TRAVIS_RUST_VERSION" == stable ]]; then
+    cargo install cargo-tarpaulin
+  fi
 script:
-  - cargo clippy -- -D clippy::all -D clippy::pedantic -D clippy::nursery -D clippy::cargo -A clippy::multiple-crate-versions -A clippy::missing-const-for-fn
+  - cargo clean
+  - cargo build
   - cargo test
+  - cargo clippy -- -D clippy::all -D clippy::pedantic -D clippy::nursery -D clippy::cargo -A clippy::multiple-crate-versions -A clippy::missing-const-for-fn
+  - cargo doc
+after_success: |
+  if [[ "$TRAVIS_RUST_VERSION" == stable ]]; then
+    # Upload coverage report to coveralls.io
+    cargo tarpaulin --ciserver travis-ci --coveralls $TRAVIS_JOB_ID
+  fi
