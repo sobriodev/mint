@@ -41,7 +41,7 @@ impl Io {
     /// or a custom library error.
     pub fn new<P>(name: &str, path: P) -> Result<Self>
     where
-        P: AsRef<OsStr>,
+        P: AsRef<OsStr> + 'static,
     {
         if !Self::is_name_valid(name) {
             return Err(Error::custom_err(
@@ -70,10 +70,10 @@ impl Io {
     /// does not exists or has corrupted internal structure.
     pub fn open<P>(path: P) -> Result<Self>
     where
-        P: AsRef<OsStr>,
+        P: AsRef<OsStr> + 'static,
     {
         let canonicalized_path_res = Path::new(&path).canonicalize();
-        // Path::canonicalize returns an error in case specified directory does not exists.
+        // Path::canonicalize returns an error in case specified directory does not exist.
         // Capture any IO error and generate custom one instead
         if canonicalized_path_res.is_err() {
             return Err(Error::custom_err(
@@ -140,7 +140,7 @@ mod tests {
     fn invalid_database_name_produces_error() {
         let temp_dir = create_temp_dir();
 
-        let io = Io::new("!!InvalidName!!", temp_dir.path());
+        let io = Io::new("!!InvalidName!!", temp_dir.path().to_path_buf());
         let err = io.unwrap_err();
         assert_eq!(CustomKind::InvalidArgument, *err.get_custom_kind().unwrap());
 
@@ -151,7 +151,7 @@ mod tests {
     fn returned_database_path_is_absolute_after_database_creation() {
         let temp_dir = create_temp_dir();
 
-        let io = Io::new(TEST_DATABASE_NAME, temp_dir.path()).unwrap();
+        let io = Io::new(TEST_DATABASE_NAME, temp_dir.path().to_path_buf()).unwrap();
         assert!(io.path.is_absolute());
 
         remove_temp_dir(temp_dir);
@@ -161,7 +161,7 @@ mod tests {
     fn expected_directory_structure_exists_after_database_creation() {
         let temp_dir = create_temp_dir();
 
-        let _ = Io::new(TEST_DATABASE_NAME, temp_dir.path()).unwrap();
+        let _ = Io::new(TEST_DATABASE_NAME, temp_dir.path().to_path_buf()).unwrap();
         let database_dir = temp_dir.path().join(TEST_DATABASE_NAME);
         let metadata_dir = database_dir.join(Io::METADATA_DIR);
         let metadata_file = metadata_dir.join(Io::METADATA_FILE);
@@ -195,7 +195,7 @@ mod tests {
         let temp_dir = create_temp_dir();
 
         // At this point temporary directory exists but contains nothing inside
-        let io = Io::open(temp_dir.path());
+        let io = Io::open(temp_dir.path().to_path_buf());
         let err = io.unwrap_err();
         assert_eq!(CustomKind::DbIo, *err.get_custom_kind().unwrap());
 
@@ -208,7 +208,7 @@ mod tests {
         let temp_dir = create_temp_dir();
         fs::create_dir(temp_dir.path().join(Io::METADATA_DIR)).unwrap();
 
-        let io = Io::open(temp_dir.path());
+        let io = Io::open(temp_dir.path().to_path_buf());
         let err = io.unwrap_err();
         assert_eq!(CustomKind::DbIo, *err.get_custom_kind().unwrap());
 
@@ -219,9 +219,9 @@ mod tests {
     fn valid_directory_returns_io_instance_when_opening_database() {
         let temp_dir = create_temp_dir();
 
-        Io::new(TEST_DATABASE_NAME, temp_dir.path()).unwrap();
+        Io::new(TEST_DATABASE_NAME, temp_dir.path().to_path_buf()).unwrap();
         let io = Io::open(temp_dir.path().join(TEST_DATABASE_NAME)).unwrap();
-        // Internal path should be always absolute
+        // Internal path should always be absolute
         assert!(io.path.is_absolute());
 
         remove_temp_dir(temp_dir);
