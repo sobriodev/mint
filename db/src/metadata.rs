@@ -21,6 +21,7 @@ impl Database {
     ///
     /// By default all fields are fully initialized with default values except for database's name
     /// which is set according to `name` parameter.
+    #[must_use]
     pub fn new(name: &str) -> Self {
         let now = Utc::now();
         Self {
