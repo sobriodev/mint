@@ -39,7 +39,7 @@ impl Io {
     /// # Errors
     /// The function may return either an OS specific error in case system call has failed
     /// or a custom library error.
-    pub fn new<P>(name: &str, path: P) -> Result<Self>
+    pub fn create<P>(name: &str, path: P) -> Result<Self>
     where
         P: AsRef<OsStr> + 'static,
     {
@@ -140,7 +140,7 @@ mod tests {
     fn invalid_database_name_produces_error() {
         let temp_dir = create_temp_dir();
 
-        let io = Io::new("!!InvalidName!!", temp_dir.path().to_path_buf());
+        let io = Io::create("!!InvalidName!!", temp_dir.path().to_path_buf());
         let err = io.unwrap_err();
         assert_eq!(CustomKind::InvalidArgument, *err.get_custom_kind().unwrap());
 
@@ -151,7 +151,7 @@ mod tests {
     fn returned_database_path_is_absolute_after_database_creation() {
         let temp_dir = create_temp_dir();
 
-        let io = Io::new(TEST_DATABASE_NAME, temp_dir.path().to_path_buf()).unwrap();
+        let io = Io::create(TEST_DATABASE_NAME, temp_dir.path().to_path_buf()).unwrap();
         assert!(io.path.is_absolute());
 
         remove_temp_dir(temp_dir);
@@ -161,7 +161,7 @@ mod tests {
     fn expected_directory_structure_exists_after_database_creation() {
         let temp_dir = create_temp_dir();
 
-        let _ = Io::new(TEST_DATABASE_NAME, temp_dir.path().to_path_buf()).unwrap();
+        let _ = Io::create(TEST_DATABASE_NAME, temp_dir.path().to_path_buf()).unwrap();
         let database_dir = temp_dir.path().join(TEST_DATABASE_NAME);
         let metadata_dir = database_dir.join(Io::METADATA_DIR);
         let metadata_file = metadata_dir.join(Io::METADATA_FILE);
@@ -219,11 +219,30 @@ mod tests {
     fn valid_directory_returns_io_instance_when_opening_database() {
         let temp_dir = create_temp_dir();
 
-        Io::new(TEST_DATABASE_NAME, temp_dir.path().to_path_buf()).unwrap();
+        Io::create(TEST_DATABASE_NAME, temp_dir.path().to_path_buf()).unwrap();
         let io = Io::open(temp_dir.path().join(TEST_DATABASE_NAME)).unwrap();
         // Internal path should always be absolute
         assert!(io.path.is_absolute());
 
         remove_temp_dir(temp_dir);
+    }
+}
+
+// Export mock implementation to allow other modules use fake methods without altering
+// filesystem inside tests. It has to be done manually because mockall's #[automock] emits
+// bunch of warnings because of unused private constants.
+cfg_if::cfg_if! {
+    if #[cfg(test)] {
+        use mockall::mock;
+        mock! {
+             pub Io {
+                pub fn create<P>(name: &str, path: P) -> Result<Self>
+                where
+                    P: AsRef<OsStr> + 'static {}
+                pub fn open<P>(path: P) -> Result<Self>
+                where
+                    P: AsRef<OsStr> + 'static {}
+            }
+        }
     }
 }
