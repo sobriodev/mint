@@ -10,13 +10,14 @@ rust:
   - beta
   - nightly
 matrix:
-      allow_failures:
-        - rust: nightly
+  allow_failures:
+    - rust: nightly
 before_script: |
   rustup component add clippy
   if [[ "$TRAVIS_RUST_VERSION" == stable ]]; then
     cargo install cargo-tarpaulin
   fi
+  chmod +x script/cli_regression.sh
 script:
   - cargo clean
   - cargo build
@@ -24,6 +25,7 @@ script:
   - cargo clippy -- -D clippy::all -D clippy::pedantic -D clippy::nursery -D clippy::cargo -A clippy::multiple-crate-versions -A clippy::missing-const-for-fn
   - cargo doc
   - cargo build --release # Release build is needed by CLI regression script
+  - script/cli_regression.sh # Perform CLI regression
 after_success: |
   if [[ "$TRAVIS_RUST_VERSION" == stable ]]; then
     # Upload coverage report to coveralls.io
