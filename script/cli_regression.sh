@@ -20,7 +20,7 @@ readonly DB_PATH=$TEMP_DIR/$DB_NAME
 rm -rf $DB_PATH
 
 # Create an empty database
-output=$($CLI create --name $DB_NAME --directory $TEMP_DIR --json-format)
+output=$($CLI create --name $DB_NAME --directory $TEMP_DIR --json)
 status=$(echo "$output" | jq ".status == 0 and .data.path == \"$DB_PATH\"")
 assert_jq "$status" "Test database has been created" "Unable to create test database" "$output"
 

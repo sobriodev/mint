@@ -14,7 +14,7 @@ pub struct Params {
     #[clap(short, long, help = "Database directory")]
     directory: Option<String>,
     #[clap(short, long, help = "JSON output format")]
-    pub json_output: bool,
+    pub json: bool,
 }
 
 /// Output of the command

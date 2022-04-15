@@ -113,7 +113,7 @@ fn main() {
         Commands::Create(params) => do_execute(
             create::execute,
             params,
-            params.json_output,
+            params.json,
             create::print_text_output,
         ),
     };
