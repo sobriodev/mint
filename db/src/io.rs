@@ -49,9 +49,15 @@ impl Io {
                 "Database name contains forbidden characters",
             ));
         }
-
         // Create an empty metadata structure inside a specified directory
         let database_path = Path::new(&path).canonicalize()?.join(name);
+        if database_path.exists() {
+            return Err(Error::custom_err(
+                CustomKind::InvalidArgument,
+                "Database already exists",
+            ));
+        }
+
         let metadata_path = database_path.join(Self::METADATA_DIR);
         fs::create_dir_all(&metadata_path)?;
         File::create(metadata_path.join(Self::METADATA_FILE))?;

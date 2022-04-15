@@ -23,6 +23,7 @@ script:
   - cargo test
   - cargo clippy -- -D clippy::all -D clippy::pedantic -D clippy::nursery -D clippy::cargo -A clippy::multiple-crate-versions -A clippy::missing-const-for-fn
   - cargo doc
+  - cargo build --release # Release build is needed by CLI regression script
 after_success: |
   if [[ "$TRAVIS_RUST_VERSION" == stable ]]; then
     # Upload coverage report to coveralls.io
