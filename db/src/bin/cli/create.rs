@@ -1,4 +1,3 @@
-
 use clap::Args;
 use db::database::Database;
 use db::error::Result;
@@ -24,8 +23,11 @@ pub struct Output {
 }
 
 /// Print command's text output
-pub fn print_text_output(outcome: &Output) {
-    println!("Created an empty database inside: {}", outcome.path.display());
+pub fn print_text_output(output: &Output) {
+    println!(
+        "Created an empty database inside: {}",
+        output.path.display()
+    );
 }
 
 /// Main entry of the command
@@ -36,8 +38,10 @@ pub fn execute(params: &Params) -> Result<Output> {
         Some(directory) => Path::new(directory).to_path_buf(),
         None => env::current_dir()?,
     };
-    Database::create(&params.name,path.clone())?;
+    Database::create(&params.name, path.clone())?;
 
     // Database path consists of a base path joined with a database name
-    Ok(Output { path: path.join(&params.name) })
+    Ok(Output {
+        path: path.join(&params.name),
+    })
 }

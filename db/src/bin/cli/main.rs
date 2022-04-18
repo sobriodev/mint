@@ -37,9 +37,8 @@ enum Commands {
 }
 
 #[derive(Serialize)]
-struct CommandError
-{
-    cause: String
+struct CommandError {
+    cause: String,
 }
 
 #[derive(Serialize)]
@@ -51,23 +50,23 @@ where
     #[serde(skip_serializing_if = "Option::is_none")]
     data: Option<O>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    error: Option<CommandError>
+    error: Option<CommandError>,
 }
 
 fn print_json_output<O>(output: &CommandOutput<O>)
-    where
-        O: Serialize,
+where
+    O: Serialize,
 {
     println!("{}", serde_json::to_string_pretty(&output).unwrap());
 }
 
-fn do_execute<Params, Outcome>(
-    exec: fn(Params) -> Result<Outcome>,
+fn do_execute<Params, Output>(
+    exec: fn(Params) -> Result<Output>,
     params: Params,
     json: bool,
-    print_text_output_fn: fn(&Outcome),
+    print_text_output_fn: fn(&Output),
 ) where
-    Outcome: Serialize,
+    Output: Serialize,
 {
     const STATUS_OK: i32 = 0;
     const STATUS_FAILURE: i32 = -1;
@@ -80,13 +79,15 @@ fn do_execute<Params, Outcome>(
         Ok(outcome) => CommandOutput {
             status: STATUS_OK,
             data: Some(outcome),
-            error: None
+            error: None,
         },
 
         Err(err) => CommandOutput {
             status: STATUS_FAILURE,
             data: None,
-            error: Some(CommandError { cause: err.to_string() })
+            error: Some(CommandError {
+                cause: err.to_string(),
+            }),
         },
     };
 
@@ -96,7 +97,7 @@ fn do_execute<Params, Outcome>(
     } else {
         match output.status {
             STATUS_OK => print_text_output_fn(&output.data.unwrap()),
-            _ => println!("{}", &output.error.unwrap().cause)
+            _ => println!("{}", &output.error.unwrap().cause),
         }
     }
 
