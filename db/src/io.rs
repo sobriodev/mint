@@ -116,6 +116,14 @@ impl Io {
     {
         let file_path = self.path.join(&path);
 
+        // Create directory structure in case file creation has been requested
+        if create {
+            // Obtain directories leading to the file. At least one parent directory is always
+            // expected since the path is relative to a database's base directory
+            let dirs = Path::new(&file_path).parent().unwrap();
+            fs::create_dir_all(dirs)?;
+        }
+
         fs::OpenOptions::new()
             .create_new(create)
             .write(true)
@@ -268,7 +276,9 @@ mod tests {
     }
 
     #[rstest]
-    fn existing_database_throws_error_when_creating_another_one_in_the_same_dir(io_created: IoInstanceFixture) {
+    fn existing_database_throws_error_when_creating_another_one_in_the_same_dir(
+        io_created: IoInstanceFixture,
+    ) {
         let (_io, temp_dir) = io_created;
 
         let result = Io::create(TEST_DATABASE_NAME, temp_dir.path().to_path_buf());
@@ -381,7 +391,8 @@ mod tests {
         let object = Object::default();
 
         assert_eq!(0, file_len(&metadata_file_path));
-        io.serialize(&object, metadata_file_path.clone(), true).unwrap();
+        io.serialize(&object, metadata_file_path.clone(), true)
+            .unwrap();
         // Metadata file shall have content updated
         assert_gt!(file_len(&metadata_file_path), 0);
 
@@ -421,29 +432,10 @@ mod tests {
         remove_temp_dir(temp_dir);
     }
 
-    // This is only a temporary unit test to prove nested path throws an error when serializing
-    // an object into a new file. The test will be removed when this limitation is finally
-    // relaxed. See https://github.com/sobriodev/mint/issues/5
     #[rstest]
+    #[case::base_dir("serialized.json")]
     #[case::sub_dir("sub/serialized.json")]
     #[case::sub_sub_dir("sub/sub/serialized.json")]
-    fn nested_path_throws_an_error_when_serializing(
-        #[case] path: PathBuf,
-        io_opened: IoInstanceFixture,
-    ) {
-        let (io, temp_dir) = io_opened;
-        let object = 0;
-
-        let result = io.serialize_new(&object, path, false);
-        let err = result.unwrap_err();
-        // Expect IO error
-        assert!(!err.is_custom());
-
-        remove_temp_dir(temp_dir);
-    }
-
-    #[rstest]
-    #[case::same_dir("serialized.json")]
     fn object_can_be_serialized_into_new_file(#[case] path: PathBuf, io_opened: IoInstanceFixture) {
         let (io, temp_dir) = io_opened;
         let full_path = database_dir(&temp_dir).join(&path);
@@ -459,6 +451,30 @@ mod tests {
         io.serialize_new(&object, path.clone(), true).unwrap();
         assert!(full_path.exists());
         assert_gt!(file_len(&full_path), 0);
+
+        remove_temp_dir(temp_dir);
+    }
+
+    #[rstest]
+    #[case::base_dir("serialized.json")]
+    #[case::sub_dir("sub/serialized.json")]
+    #[case::sub_sub_dir("sub/sub/serialized.json")]
+    fn serialized_file_may_be_overwritten(#[case] path: PathBuf, io_opened: IoInstanceFixture) {
+        let (io, temp_dir) = io_opened;
+        let full_path = database_dir(&temp_dir).join(&path);
+        let old_object: u8 = 100;
+        let new_object: f64 = 12345678.12345678;
+
+        // Serialize new object at first
+        assert!(!full_path.exists());
+        io.serialize_new(&old_object, path.clone(), true).unwrap();
+        assert!(full_path.exists());
+        let old_file_len = file_len(&full_path);
+        assert_gt!(old_file_len, 0);
+
+        // Overwrite the same object file
+        io.serialize(&new_object, path.clone(), true).unwrap();
+        assert_gt!(file_len(&full_path), old_file_len);
 
         remove_temp_dir(temp_dir);
     }
