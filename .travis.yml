@@ -29,5 +29,5 @@ script:
 after_success: |
   if [[ "$TRAVIS_RUST_VERSION" == stable ]]; then
     # Upload coverage report to coveralls.io
-    cargo tarpaulin --ciserver travis-ci --coveralls $TRAVIS_JOB_ID
+    cargo tarpaulin --exclude-files db/src/bin/cli/* --ciserver travis-ci --coveralls $TRAVIS_JOB_ID
   fi
