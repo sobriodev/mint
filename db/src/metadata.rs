@@ -3,17 +3,19 @@
 //! Metadata keeps all crucial information required to load, store and manipulate database
 //! collections as well as the database itself.
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Local};
+use serde::{Deserialize, Serialize};
 
 /// A structure representing metadata of a database.
 #[non_exhaustive]
+#[derive(Serialize, Deserialize)]
 pub struct Database {
     /// Name of a database.
     pub name: String,
     /// Database creation date.
-    pub created: DateTime<Utc>,
+    pub created: DateTime<Local>,
     /// Database last modification date.
-    pub modified: DateTime<Utc>,
+    pub modified: DateTime<Local>,
 }
 
 impl Database {
@@ -23,7 +25,7 @@ impl Database {
     /// which is set according to `name` parameter.
     #[must_use]
     pub fn new(name: &str) -> Self {
-        let now = Utc::now();
+        let now = Local::now();
         Self {
             name: name.to_string(),
             created: now,

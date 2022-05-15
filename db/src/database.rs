@@ -39,8 +39,8 @@ impl Database {
     where
         P: AsRef<OsStr> + 'static,
     {
-        let io = Io::create(name, path)?;
         let metadata = DbMeta::new(name);
+        let io = Io::create(path, &metadata)?;
         Ok(Self { io, metadata })
     }
 }
@@ -60,8 +60,10 @@ mod tests {
         let ctx = Io::create_context();
         ctx.expect()
             .times(1)
-            .withf(move |name_arg, path_arg: &&str| name_arg == name && *path_arg == path)
-            .returning(|_name, _path: &str| Ok(Io::new()));
+            .withf(move |path_arg: &&str, metadata_arg: &DbMeta| {
+                *path_arg == path && metadata_arg.name == name
+            })
+            .returning(|_path: &str, _metadata: &DbMeta| Ok(Io::new()));
 
         let database = Database::create(name, path).unwrap();
 

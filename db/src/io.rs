@@ -8,6 +8,7 @@
 use mockall::automock;
 
 use crate::error::{CustomKind, Error, Result};
+use crate::metadata::Database as DbMeta;
 use serde::Serialize;
 use std::ffi::OsStr;
 use std::fs;
@@ -18,8 +19,6 @@ use std::path::{Path, PathBuf};
 #[non_exhaustive]
 #[derive(Debug)]
 pub struct Io {
-    // TODO remove this label when the field is used internally
-    #[allow(unused)]
     path: PathBuf,
 }
 
@@ -38,24 +37,25 @@ impl Io {
     /// This function is typically called on a database creation.
     /// It initializes the filesystem before any further operation on a database can be performed.
     ///
-    /// Currently `name` has restrictions and can only contain
+    /// Currently metadata's `name` has restrictions and can only contain
     /// alphanumeric characters. An exception to this rule is underscore character.
     ///
     /// # Errors
     /// The function may return either an OS specific error in case system call has failed
     /// or a custom library error.
-    pub fn create<P>(name: &str, path: P) -> Result<Self>
+    pub fn create<P>(path: P, db_meta: &DbMeta) -> Result<Self>
     where
         P: AsRef<OsStr> + 'static,
     {
-        if !Self::is_name_valid(name) {
+        if !Self::is_name_valid(&db_meta.name) {
             return Err(Error::custom_err(
                 CustomKind::InvalidArgument,
                 "Database name contains forbidden characters",
             ));
         }
-        // Create an empty metadata structure inside a specified directory
-        let database_path = Path::new(&path).canonicalize()?.join(name);
+
+        // Check if a directory already exist
+        let database_path = Path::new(&path).canonicalize()?.join(&db_meta.name);
         if database_path.exists() {
             return Err(Error::custom_err(
                 CustomKind::DbIo,
@@ -63,13 +63,15 @@ impl Io {
             ));
         }
 
-        let metadata_path = database_path.join(Self::METADATA_DIR);
-        fs::create_dir_all(&metadata_path)?;
-        File::create(metadata_path.join(Self::METADATA_FILE))?;
-
-        Ok(Self {
+        // Serialize metadata structure before returning IO object
+        let metadata_file_path = database_path
+            .join(Self::METADATA_DIR)
+            .join(Self::METADATA_FILE);
+        let io = Self {
             path: database_path,
-        })
+        };
+        io.serialize_new(db_meta, metadata_file_path, true)?;
+        Ok(io)
     }
 
     /// Open an existing database filesystem structure.
@@ -89,7 +91,7 @@ impl Io {
         if canonicalized_path_res.is_err() {
             return Err(Error::custom_err(
                 CustomKind::DbIo,
-                "Database does not exists",
+                "Database does not exist",
             ));
         }
         let canonicalized_path = canonicalized_path_res?;
@@ -193,7 +195,6 @@ mod tests {
     /* ---- Helpers ---- */
     /* ----------------- */
 
-    type IoInstanceFixture = (Io, TempDir);
     const TEST_DATABASE_NAME: &'static str = "DB_UT";
 
     fn database_dir(dir: &TempDir) -> PathBuf {
@@ -220,29 +221,26 @@ mod tests {
     /* ---- Fixtures ---- */
     /* ------------------ */
 
+    type IoInstanceFixture = (Io, TempDir);
+
     // Return temporary directory that will be removed automatically afterwards
     #[fixture]
     fn temp_dir() -> TempDir {
         TempDir::new("").unwrap()
     }
 
+    // Return a test database's metadata structure
+    #[fixture]
+    fn db_meta() -> DbMeta {
+        DbMeta::new("DB_UT")
+    }
+
     // Create database IO instance
     #[fixture]
     fn io_created() -> IoInstanceFixture {
         let temp_dir = temp_dir();
-        let io = Io::create(TEST_DATABASE_NAME, temp_dir.path().to_path_buf()).unwrap();
+        let io = Io::create(temp_dir.path().to_path_buf(), &db_meta()).unwrap();
         (io, temp_dir)
-    }
-
-    // Return a serializable test object
-    #[derive(Serialize, Default)]
-    struct Object {
-        field1: i32,
-        field2: f32,
-    }
-    #[fixture]
-    fn serializable_object() -> Object {
-        Object::default()
     }
 
     // Create and open database IO instance
@@ -251,6 +249,18 @@ mod tests {
         let (_, temp_dir) = io_created();
         let io = Io::open(temp_dir.path().join(TEST_DATABASE_NAME)).unwrap();
         (io, temp_dir)
+    }
+
+    #[derive(Serialize, Default)]
+    struct Object {
+        field1: i32,
+        field2: f32,
+    }
+
+    // Return a serializable test object
+    #[fixture]
+    fn serializable_object() -> Object {
+        Object::default()
     }
 
     /* -------------------------- */
@@ -279,7 +289,8 @@ mod tests {
 
     #[rstest]
     fn invalid_database_name_produces_error(temp_dir: TempDir) {
-        let io = Io::create("!!InvalidName!!", temp_dir.path().to_path_buf());
+        let metadata = DbMeta::new("!!InvalidName!!");
+        let io = Io::create(temp_dir.path().to_path_buf(), &metadata);
         let err = io.unwrap_err();
         assert_eq!(CustomKind::InvalidArgument, *err.get_custom_kind().unwrap());
 
@@ -289,10 +300,11 @@ mod tests {
     #[rstest]
     fn existing_database_throws_error_when_creating_another_one_in_the_same_dir(
         io_created: IoInstanceFixture,
+        db_meta: DbMeta,
     ) {
         let (_io, temp_dir) = io_created;
 
-        let result = Io::create(TEST_DATABASE_NAME, temp_dir.path().to_path_buf());
+        let result = Io::create(temp_dir.path().to_path_buf(), &db_meta);
         let err = result.unwrap_err();
         assert_eq!(CustomKind::DbIo, *err.get_custom_kind().unwrap());
 
@@ -317,10 +329,10 @@ mod tests {
         assert!(database_dir.is_dir());
         assert!(metadata_dir.is_dir());
         assert!(metadata_file.is_file());
-        // Metadata file shall exists and be empty at this point
-        assert_eq!(
-            0,
-            File::open(metadata_file).unwrap().metadata().unwrap().len()
+        // Metadata file shall exists and contain serialized structure
+        assert_gt!(
+            File::open(metadata_file).unwrap().metadata().unwrap().len(),
+            0
         );
 
         remove_temp_dir(temp_dir);
@@ -389,15 +401,18 @@ mod tests {
     }
 
     #[rstest]
-    fn input_object_is_serialized(io_opened: IoInstanceFixture, serializable_object: Object) {
+    fn input_object_is_serialized(io_opened: IoInstanceFixture) {
         let (io, temp_dir) = io_opened;
         let metadata_file_path = test_database_metadata_file_path(&temp_dir);
+        // Probably not the best metadata representation
+        // but should be always represented by smaller number of bytes
+        let new_object = 100;
 
-        assert_eq!(0, file_len(&metadata_file_path));
-        io.serialize(&serializable_object, metadata_file_path.clone(), true)
+        let len = file_len(&metadata_file_path);
+        io.serialize(&new_object, metadata_file_path.clone(), true)
             .unwrap();
         // Metadata file shall have content updated
-        assert_gt!(file_len(&metadata_file_path), 0);
+        assert_lt!(file_len(&metadata_file_path), len);
 
         remove_temp_dir(temp_dir);
     }
@@ -429,7 +444,7 @@ mod tests {
     ) {
         let (io, temp_dir) = io_opened;
 
-        let result = io.serialize(&serializable_object, path, true);
+        let result = io.serialize_new(&serializable_object, path, true);
         let err = result.unwrap_err();
         // Expect IO error
         assert!(!err.is_custom());
