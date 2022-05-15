@@ -234,6 +234,17 @@ mod tests {
         (io, temp_dir)
     }
 
+    // Return a serializable test object
+    #[derive(Serialize, Default)]
+    struct Object {
+        field1: i32,
+        field2: f32,
+    }
+    #[fixture]
+    fn serializable_object() -> Object {
+        Object::default()
+    }
+
     // Create and open database IO instance
     #[fixture]
     fn io_opened() -> IoInstanceFixture {
@@ -365,11 +376,11 @@ mod tests {
     fn wrong_path_throws_error_when_serializing(
         #[case] path: PathBuf,
         io_opened: IoInstanceFixture,
+        serializable_object: Object,
     ) {
         let (io, temp_dir) = io_opened;
-        let object = 0;
 
-        let result = io.serialize(&object, path, true);
+        let result = io.serialize(&serializable_object, path, true);
         let err = result.unwrap_err();
         // Expect IO error
         assert!(!err.is_custom());
@@ -378,20 +389,12 @@ mod tests {
     }
 
     #[rstest]
-    fn input_object_is_serialized(io_opened: IoInstanceFixture) {
+    fn input_object_is_serialized(io_opened: IoInstanceFixture, serializable_object: Object) {
         let (io, temp_dir) = io_opened;
         let metadata_file_path = test_database_metadata_file_path(&temp_dir);
 
-        #[derive(Serialize, Default)]
-        struct Object {
-            field1: i32,
-            field2: u32,
-            field3: f64,
-        }
-        let object = Object::default();
-
         assert_eq!(0, file_len(&metadata_file_path));
-        io.serialize(&object, metadata_file_path.clone(), true)
+        io.serialize(&serializable_object, metadata_file_path.clone(), true)
             .unwrap();
         // Metadata file shall have content updated
         assert_gt!(file_len(&metadata_file_path), 0);
@@ -400,12 +403,14 @@ mod tests {
     }
 
     #[rstest]
-    fn existing_file_throws_error_when_serializing_new(io_opened: IoInstanceFixture) {
+    fn existing_file_throws_error_when_serializing_new(
+        io_opened: IoInstanceFixture,
+        serializable_object: Object,
+    ) {
         let (io, temp_dir) = io_opened;
         let path = test_database_metadata_file_path(&temp_dir);
-        let object = 0;
 
-        let result = io.serialize_new(&object, path, true);
+        let result = io.serialize_new(&serializable_object, path, true);
         let err = result.unwrap_err();
         // Expect IO error
         assert!(!err.is_custom());
@@ -420,11 +425,11 @@ mod tests {
     fn wrong_path_throws_error_when_serializing_new(
         #[case] path: PathBuf,
         io_opened: IoInstanceFixture,
+        serializable_object: Object,
     ) {
         let (io, temp_dir) = io_opened;
-        let object = 0;
 
-        let result = io.serialize(&object, path, true);
+        let result = io.serialize(&serializable_object, path, true);
         let err = result.unwrap_err();
         // Expect IO error
         assert!(!err.is_custom());
@@ -436,19 +441,17 @@ mod tests {
     #[case::base_dir("serialized.json")]
     #[case::sub_dir("sub/serialized.json")]
     #[case::sub_sub_dir("sub/sub/serialized.json")]
-    fn object_can_be_serialized_into_new_file(#[case] path: PathBuf, io_opened: IoInstanceFixture) {
+    fn object_can_be_serialized_into_new_file(
+        #[case] path: PathBuf,
+        io_opened: IoInstanceFixture,
+        serializable_object: Object,
+    ) {
         let (io, temp_dir) = io_opened;
         let full_path = database_dir(&temp_dir).join(&path);
 
-        #[derive(Serialize, Default)]
-        struct Object {
-            field1: i32,
-            field2: f32,
-        }
-        let object = Object::default();
-
         assert!(!full_path.exists());
-        io.serialize_new(&object, path.clone(), true).unwrap();
+        io.serialize_new(&serializable_object, path.clone(), true)
+            .unwrap();
         assert!(full_path.exists());
         assert_gt!(file_len(&full_path), 0);
 
@@ -475,6 +478,59 @@ mod tests {
         // Overwrite the same object file
         io.serialize(&new_object, path.clone(), true).unwrap();
         assert_gt!(file_len(&full_path), old_file_len);
+
+        remove_temp_dir(temp_dir);
+    }
+
+    #[rstest]
+    fn existing_path_may_be_reused_when_serializing(
+        io_opened: IoInstanceFixture,
+        serializable_object: Object,
+    ) {
+        let (io, temp_dir) = io_opened;
+        let base_path = Path::new("base_dir");
+        let file1_path = base_path.join("file1.json");
+        let file1_full_path = database_dir(&temp_dir).join(&file1_path);
+        let file2_path = base_path.join("file2.json");
+        let file2_full_path = database_dir(&temp_dir).join(&file2_path);
+
+        // Serialize first object
+        assert!(!file1_full_path.exists());
+        io.serialize_new(&serializable_object, file1_path.clone(), true)
+            .unwrap();
+        assert!(file1_full_path.exists());
+        assert_gt!(file_len(&file1_full_path), 0);
+
+        // Serialize second object whose path already exists in the filesystem
+        assert!(!file2_full_path.exists());
+        io.serialize_new(&serializable_object, file2_path.clone(), true)
+            .unwrap();
+        assert!(file2_full_path.exists());
+        assert_gt!(file_len(&file2_full_path), 0);
+
+        remove_temp_dir(temp_dir);
+    }
+
+    #[rstest]
+    #[case::file1("serialized.json")]
+    fn non_pretty_json_implies_smaller_file_size_when_serializing(
+        #[case] path: PathBuf,
+        io_opened: IoInstanceFixture,
+        serializable_object: Object,
+    ) {
+        let (io, temp_dir) = io_opened;
+        let full_path = database_dir(&temp_dir).join(&path);
+
+        // Write pretty JSON
+        io.serialize_new(&serializable_object, path.clone(), true)
+            .unwrap();
+        let first_len = file_len(&full_path);
+        assert_gt!(first_len, 0);
+
+        // Write non-pretty JSON into the same file
+        io.serialize(&serializable_object, path.clone(), false)
+            .unwrap();
+        assert_lt!(file_len(&full_path), first_len);
 
         remove_temp_dir(temp_dir);
     }
