@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 /// A structure representing metadata of a database.
 #[non_exhaustive]
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct Database {
     /// Name of a database.
     pub name: String,

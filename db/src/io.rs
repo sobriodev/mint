@@ -9,10 +9,12 @@ use mockall::automock;
 
 use crate::error::{CustomKind, Error, Result};
 use crate::metadata::Database as DbMeta;
+use serde::de::DeserializeOwned;
 use serde::Serialize;
 use std::ffi::OsStr;
 use std::fs;
 use std::fs::File;
+use std::io::BufReader;
 use std::path::{Path, PathBuf};
 
 /// A structure representing a filesystem abstraction layer.
@@ -20,6 +22,14 @@ use std::path::{Path, PathBuf};
 #[derive(Debug)]
 pub struct Io {
     path: PathBuf,
+}
+
+// Possible file open modes when dealing with files
+#[derive(Copy, Clone)]
+enum FileOpenMode {
+    Open,
+    Write,
+    WriteCreate,
 }
 
 #[cfg_attr(test, automock)]
@@ -81,7 +91,7 @@ impl Io {
     /// # Errors
     /// The function may return a custom library error in case a database specified by `path`
     /// does not exists or has corrupted internal structure.
-    pub fn open<P>(path: P) -> Result<Self>
+    pub fn open<P>(path: P) -> Result<(Self, DbMeta)>
     where
         P: AsRef<OsStr> + 'static,
     {
@@ -96,41 +106,67 @@ impl Io {
         }
         let canonicalized_path = canonicalized_path_res?;
 
-        // Overall check if database's filesystem structure is valid
-        let metadata_path = canonicalized_path.join(Self::METADATA_DIR);
-        let metadata_file = metadata_path.join(Self::METADATA_FILE);
-        if !metadata_path.exists() || !metadata_file.exists() || !metadata_file.is_file() {
-            return Err(Error::custom_err(
-                CustomKind::DbIo,
-                "Corrupted database filesystem structure",
-            ));
-        }
-
-        Ok(Self {
+        let metadata_file_path = canonicalized_path
+            .join(Self::METADATA_DIR)
+            .join(Self::METADATA_FILE);
+        let io = Self {
             path: canonicalized_path,
-        })
+        };
+        let metadata = io.deserialize(metadata_file_path)?;
+        Ok((io, metadata))
     }
 
     // Open a file creating it optionally if needed
-    fn open_file<P>(&self, path: P, create: bool) -> std::io::Result<File>
+    fn open_file<P>(&self, path: P, mode: FileOpenMode) -> Result<File>
     where
         P: AsRef<Path> + 'static,
     {
         let file_path = self.path.join(&path);
 
         // Create directory structure in case file creation has been requested
-        if create {
+        if matches!(mode, FileOpenMode::WriteCreate) {
             // Obtain directories leading to the file. At least one parent directory is always
             // expected since the path is relative to a database's base directory
             let dirs = Path::new(&file_path).parent().unwrap();
             fs::create_dir_all(dirs)?;
         }
 
-        fs::OpenOptions::new()
-            .create_new(create)
-            .write(true)
-            .truncate(true)
-            .open(file_path)
+        // Check if a path exists and is not a directory when open/write mode is selected.
+        // This might be handled by `open` method below but the error would not contain
+        // problematic path details. Debugging is much easier this way
+        if !matches!(mode, FileOpenMode::WriteCreate) && (!file_path.exists() || file_path.is_dir())
+        {
+            return Err(Error::custom_err(
+                CustomKind::InvalidArgument,
+                &format!(
+                    "Cannot serialize an object into invalid path: {}",
+                    file_path.display()
+                ),
+            ));
+        }
+
+        // Set file options depending upon input mode
+        let mut open_options = fs::OpenOptions::new();
+        match mode {
+            FileOpenMode::Open => {
+                open_options.read(true);
+            }
+            FileOpenMode::Write => {
+                open_options.write(true);
+                open_options.truncate(true);
+            }
+            FileOpenMode::WriteCreate => {
+                open_options.create_new(true);
+                open_options.write(true);
+            }
+        }
+
+        // Automatic result conversion cannot be handled - must be done manually
+        let file_result = open_options.open(file_path);
+        match file_result {
+            Ok(file) => Ok(file),
+            Err(err) => Err(Error::Io(err)),
+        }
     }
 
     // Serialize a serializable object into a file
@@ -163,7 +199,7 @@ impl Io {
         S: Serialize + 'static,
         P: AsRef<Path> + 'static,
     {
-        let file = self.open_file(path, false)?;
+        let file = self.open_file(path, FileOpenMode::Write)?;
         Self::do_serialize(object, file, pretty)
     }
 
@@ -179,8 +215,27 @@ impl Io {
         S: Serialize + 'static,
         P: AsRef<Path> + 'static,
     {
-        let file = self.open_file(path, true)?;
+        let file = self.open_file(path, FileOpenMode::WriteCreate)?;
         Self::do_serialize(object, file, pretty)
+    }
+
+    /// Deserialize an object from an existing file.
+    ///
+    /// The file has to exists in the filesystem and contains a serialized instance of the same
+    /// type. Either [`Io::serialize`] or [`Io::serialize_new`] is required prior to a call to this
+    /// function.
+    ///
+    /// # Errors
+    /// The function may return both custom library as well as IO and serde internal errors.
+    pub fn deserialize<S, P>(&self, path: P) -> Result<S>
+    where
+        S: DeserializeOwned + 'static,
+        P: AsRef<Path> + 'static,
+    {
+        let file = self.open_file(path, FileOpenMode::Open)?;
+        let reader = BufReader::new(file);
+        let object = serde_json::from_reader(reader)?;
+        Ok(object)
     }
 }
 
@@ -189,6 +244,7 @@ mod tests {
     use super::*;
     use more_asserts::*;
     use rstest::*;
+    use serde::Deserialize;
     use tempdir::TempDir;
 
     /* ----------------- */
@@ -247,11 +303,11 @@ mod tests {
     #[fixture]
     fn io_opened() -> IoInstanceFixture {
         let (_, temp_dir) = io_created();
-        let io = Io::open(temp_dir.path().join(TEST_DATABASE_NAME)).unwrap();
+        let (io, _) = Io::open(temp_dir.path().join(TEST_DATABASE_NAME)).unwrap();
         (io, temp_dir)
     }
 
-    #[derive(Serialize, Default)]
+    #[derive(Serialize, Deserialize, Default, PartialEq, Debug)]
     struct Object {
         field1: i32,
         field2: f32,
@@ -354,7 +410,7 @@ mod tests {
         // At this point temporary directory exists but contains nothing inside
         let io = Io::open(temp_dir.path().to_path_buf());
         let err = io.unwrap_err();
-        assert_eq!(CustomKind::DbIo, *err.get_custom_kind().unwrap());
+        assert_eq!(CustomKind::InvalidArgument, *err.get_custom_kind().unwrap());
 
         remove_temp_dir(temp_dir);
     }
@@ -366,7 +422,7 @@ mod tests {
 
         let io = Io::open(temp_dir.path().to_path_buf());
         let err = io.unwrap_err();
-        assert_eq!(CustomKind::DbIo, *err.get_custom_kind().unwrap());
+        assert_eq!(CustomKind::InvalidArgument, *err.get_custom_kind().unwrap());
 
         remove_temp_dir(temp_dir);
     }
@@ -394,8 +450,7 @@ mod tests {
 
         let result = io.serialize(&serializable_object, path, true);
         let err = result.unwrap_err();
-        // Expect IO error
-        assert!(!err.is_custom());
+        assert_eq!(CustomKind::InvalidArgument, *err.get_custom_kind().unwrap());
 
         remove_temp_dir(temp_dir);
     }
@@ -436,7 +491,7 @@ mod tests {
     #[rstest]
     #[case::absolute_path(Path::new("/").join(Io::METADATA_DIR).join(Io::METADATA_FILE))]
     #[case::path_to_directory(Path::new(Io::METADATA_DIR).to_path_buf())]
-    #[case::empty_path(Path::new("").to_path_buf())]
+    #[case::empty_path("")]
     fn wrong_path_throws_error_when_serializing_new(
         #[case] path: PathBuf,
         io_opened: IoInstanceFixture,
@@ -546,6 +601,80 @@ mod tests {
         io.serialize(&serializable_object, path.clone(), false)
             .unwrap();
         assert_lt!(file_len(&full_path), first_len);
+
+        remove_temp_dir(temp_dir);
+    }
+
+    #[rstest]
+    #[case::absolute_path(Path::new("/").join(Io::METADATA_DIR).join(Io::METADATA_FILE))]
+    #[case::path_to_directory(Path::new(Io::METADATA_DIR).to_path_buf())]
+    #[case::empty_path("")]
+    fn invalid_path_throws_error_when_deserializing(
+        #[case] path: PathBuf,
+        io_opened: IoInstanceFixture,
+    ) {
+        let (io, temp_dir) = io_opened;
+
+        let result: Result<Object> = io.deserialize(path);
+        let err = result.unwrap_err();
+        assert_eq!(CustomKind::InvalidArgument, *err.get_custom_kind().unwrap());
+
+        remove_temp_dir(temp_dir);
+    }
+
+    #[rstest]
+    fn empty_file_throws_error_when_deserializing(io_opened: IoInstanceFixture) {
+        let (io, temp_dir) = io_opened;
+        let filename = "file.json";
+        let path = database_dir(&temp_dir).join(filename);
+
+        File::create(path.clone()).unwrap();
+        let result: Result<Object> = io.deserialize(path);
+        let err = result.unwrap_err();
+        // Expect serde error
+        assert!(!err.is_custom());
+
+        remove_temp_dir(temp_dir);
+    }
+
+    #[rstest]
+    fn deserializing_throws_error_when_different_object_was_written_into_file(
+        io_opened: IoInstanceFixture,
+        serializable_object: Object,
+    ) {
+        let (io, temp_dir) = io_opened;
+        let path = "serialized.json";
+
+        #[derive(Deserialize, Debug)]
+        struct AnotherObject {
+            some_field: i32,
+            another_field: u8,
+        }
+        io.serialize_new(&serializable_object, path.clone(), true)
+            .unwrap();
+        let result: Result<AnotherObject> = io.deserialize(path);
+        let err = result.unwrap_err();
+        // Expect serde error
+        assert!(!err.is_custom());
+
+        remove_temp_dir(temp_dir);
+    }
+
+    #[rstest]
+    #[case::base_dir("serialized.json")]
+    #[case::sub_dir("sub/serialized.json")]
+    #[case::sub_sub_dir("sub/sub/serialized.json")]
+    fn object_may_be_deserialized(
+        #[case] path: PathBuf,
+        io_opened: IoInstanceFixture,
+        serializable_object: Object,
+    ) {
+        let (io, temp_dir) = io_opened;
+
+        io.serialize_new(&serializable_object, path.clone(), true)
+            .unwrap();
+        let deserialized = io.deserialize(path).unwrap();
+        assert_eq!(serializable_object, deserialized);
 
         remove_temp_dir(temp_dir);
     }
