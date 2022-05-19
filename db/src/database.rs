@@ -43,6 +43,22 @@ impl Database {
         let io = Io::create(path, &metadata)?;
         Ok(Self { io, metadata })
     }
+
+    /// Open an existing database.
+    ///
+    /// The function may be called to load an existing database from the filesystem.
+    /// ['Database::create'] has to be called prior to this function.
+    ///
+    /// # Errors
+    /// The function may produce a number of errors (both library and external ones) depending
+    /// on various conditions.
+    pub fn open<P>(path: P) -> Result<Self>
+    where
+        P: AsRef<OsStr> + 'static,
+    {
+        let (io, metadata) = Io::open(path)?;
+        Ok(Self { io, metadata })
+    }
 }
 
 #[cfg(test)]
@@ -50,11 +66,32 @@ mod tests {
     use super::*;
     use chrono::Utc;
     use more_asserts::*;
+    use rstest::*;
 
-    #[test]
+    /* ----------------- */
+    /* ---- Helpers ---- */
+    /* ----------------- */
+
+    const DATABASE_FAKE_PATH: &'static str = "/path/to/database";
+    const DATABASE_FAKE_NAME: &'static str = "TestDatabase";
+
+    /* ------------------ */
+    /* ---- Fixtures ---- */
+    /* ------------------ */
+
+    #[fixture]
+    fn fake_metadata() -> DbMeta {
+        DbMeta::new(DATABASE_FAKE_NAME)
+    }
+
+    /* -------------------------- */
+    /* ---- Test definitions ---- */
+    /* -------------------------- */
+
+    #[rstest]
     fn database_is_successfully_created() {
-        let name = "TestDatabase";
-        let path = "/path/to/database";
+        let name = DATABASE_FAKE_NAME;
+        let path = DATABASE_FAKE_PATH;
 
         // Set up mock on Io::create which checks whether function arguments are valid
         let ctx = Io::create_context();
@@ -72,5 +109,21 @@ mod tests {
         assert_eq!(name, database.metadata.name);
         assert_gt!(now, database.metadata.created);
         assert_eq!(database.metadata.created, database.metadata.modified);
+    }
+
+    #[rstest]
+    fn database_is_successfully_opened() {
+        let path = DATABASE_FAKE_PATH;
+
+        // Set up mock on Io::open which checks whether function arguments are valid
+        let ctx = Io::open_context();
+        ctx.expect()
+            .times(1)
+            .withf(move |path_arg: &&str| *path_arg == path)
+            .returning(|_path: &str| Ok((Io::new(), fake_metadata())));
+
+        let database = Database::open(path).unwrap();
+
+        assert_eq!(DATABASE_FAKE_NAME, database.metadata.name);
     }
 }
