@@ -47,7 +47,7 @@ impl Database {
     /// Open an existing database.
     ///
     /// The function may be called to load an existing database from the filesystem.
-    /// ['Database::create'] has to be called prior to this function.
+    /// [`Database::create`] has to be called prior to this function.
     ///
     /// # Errors
     /// The function may produce a number of errors (both library and external ones) depending

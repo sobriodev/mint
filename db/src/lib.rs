@@ -6,4 +6,5 @@
 pub mod database;
 pub mod error;
 pub mod io;
+pub mod jutil;
 pub mod metadata;
