@@ -9,6 +9,8 @@ pub enum CustomKind {
     InvalidArgument,
     /// Database IO layer error
     DbIo,
+    /// JSON error
+    Json,
 }
 
 /// Library error structure.
