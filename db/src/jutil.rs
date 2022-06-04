@@ -141,6 +141,13 @@ fn wrap_value(tokens: &[String], value: JValue) -> JValue {
 ///
 /// The function does not allow to replace existing object keys or array indices.
 ///
+/// # Panics
+/// Should never panic. If the function panics then it should be considered as a bug
+/// inside the function's implementation.
+///
+/// # Errors
+/// The function may return a number of custom library errors.
+///
 /// # Examples
 /// ```
 /// use serde_json::{Value, json};
@@ -157,13 +164,6 @@ fn wrap_value(tokens: &[String], value: JValue) -> JValue {
 /// let bar = parent.pointer("/child/object/bar").unwrap();
 /// assert_eq!(bar, "baz");
 /// ```
-///
-/// # Panics
-/// Should never panic. If the function panics then it should be considered as a bug
-/// inside the function's implementation.
-///
-/// # Errors
-/// The function may return a number of custom library errors.
 pub fn incorporate_into(parent: &mut JValue, pointer: &str, child: JValue) -> Result<()> {
     let (complement, parent) = pointer_complement_mut(parent, pointer)?;
     if complement.is_empty() {
